@@ -1,0 +1,82 @@
+---
+title: "Arrhythmia"
+author: "RvH"
+date: "20-12-2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = "D:/OneDrive - LUMC/PhD/Calcium/210830_MEA_first_analysis/Data")
+#knitr::opts_knit$set(root.dir = "X:/OneDrive_LUMC/PhD/MEA/Plate 3/")
+library(drc)
+library(tidyverse)
+library(cowplot)
+theme_set(theme_cowplot(font_size = 18))
+number_axis <- list(theme(text = element_text(size=29.1), 
+        axis.text.x = element_text(size = 22.8),
+        axis.text.y = element_text(size = 22.8),
+        title = element_text(size = 29.1)))
+label_axis <-list(theme(text = element_text(size=29.1), 
+        axis.text.x = element_text(size = 29.1),
+        axis.text.y = element_text(size = 22.8),
+        title = element_text(size = 29.1)))
+library(ggsci)
+std <- function(x, na.rm = FALSE) sd(x, na.rm = na.rm)/sqrt(length(x))
+#theme_temp <- theme_cowplot()
+#theme_temp <- theme_update(panel.grid.major = element_line(color = "gray90", size = 0.5))
+setwd("D:/OneDrive - LUMC/PhD/Writing/First/Figure 5 Fatty acids and extra/MEA")
+#setwd("X:/OneDrive_LUMC/PhD/Writing/First/Figure 5 Fatty acids and extra/MEA")
+
+```
+
+## import data
+```{r}
+df <- read_csv("Data/arrhythmia_stats.csv") %>% filter(!is.na(`Treatment/ID`)) ## Plate 2 excluded
+load("Data/FPD_plate1.Rdata")
+df <- df %>% separate(`Treatment/ID`, c("Line", "Treatment"))
+concs <- read_csv("Data/Drug_concs.csv")
+df <- left_join(df %>% filter(Plate == "plate3"), concs, by = c("Display Name", "Treatment"))
+
+df <- df %>% group_by(Line, Plate, Concentration) %>% filter(Treatment == "E4031") %>% 
+        filter(`Arrhythmia Flag` == 0) %>% summarise(number = n()) %>% mutate(state = "Norm") %>% 
+        pivot_wider(names_from = Concentration, values_from = number) %>% replace(is.na(.), 0) %>% 
+        mutate(across(where(is.integer), ~.x / `0`)*100) %>%  
+        pivot_longer(4:7, names_to = "Concentration", values_to = "Percentage arrhythmia") %>% 
+        mutate(Line = ifelse(Line == "57c3", "Pt 1", 
+                             ifelse(Line == "57G4", "Iso 1", "Ctrl")))
+tmp <- arr %>% ungroup() %>% filter(Concentration %in% c(0.003, 0.01, 0.03, 0.1))  %>% 
+  select(Line, Concentration) %>% mutate(`Percentage arrhythmia` = 0, 
+                                         Plate = rep("Plate3", each = 12))
+#arr$Concentration <- as.double(arr$Concentration)
+arr <- full_join(arr %>% ungroup() %>% select(-Treatment) %>% mutate(Plate = "Plate1"),
+                 df, by = c("Line", "Concentration", "Percentage arrhythmia", "Plate")) %>% 
+  mutate(`Percentage arrhythmia` = 100 - `Percentage arrhythmia`) %>% select(-state) %>% full_join(tmp)
+
+  
+ 
+```
+
+
+## arrhythmia plots 
+
+```{r}
+arr_means <- arr %>% group_by(Line, Concentration) %>% 
+  summarise(Arrhythmia_mean = mean(`Percentage arrhythmia`, na.rm = TRUE), Arrhythmia_std = std(`Percentage arrhythmia`, na.rm = TRUE))
+
+ggplot(dat = arr_means %>% filter(Concentration > 0.03), aes(x = Concentration, y = Arrhythmia_mean, fill = Line))+
+  geom_bar(position="dodge", stat="identity")+
+  geom_errorbar(aes(ymin = Arrhythmia_mean + Arrhythmia_std,
+                     ymax = Arrhythmia_mean + Arrhythmia_std),
+                position=position_dodge(.9)) +
+  geom_linerange(aes(ymin = Arrhythmia_mean,
+                     ymax = Arrhythmia_mean + Arrhythmia_std),
+                position=position_dodge(.9)) +
+  scale_fill_npg()+
+  scale_y_continuous(expand = c(0,0), limit = c(0,100))+
+  labs(y = "Percentage E4031 \n induced arrhythmia (%)",
+       x = "Concentration E4031 (uM)")+
+  number_axis
+
+save_plot("Graphs/Percentage_Arrhythmia.pdf", last_plot(), base_height = 6, base_asp = 1.2)
+```

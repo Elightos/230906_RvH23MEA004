@@ -1,0 +1,185 @@
+---
+title: "MEA_analysis"
+author: "RvH"
+date: "1-9-2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = "D:/OneDrive - LUMC/PhD/Calcium/210830_MEA_first_analysis/Data")0
+#knitr::opts_knit$set(root.dir = "X:/OneDrive_LUMC/PhD/MEA/Plate 3/")
+library(drc)
+library(tidyverse)
+library(cowplot)
+theme_set(theme_cowplot(font_size = 18))
+library(ggsci)
+library(ggrepel)
+std <- function(x, na.rm = FALSE) sd(x, na.rm = na.rm)/sqrt(length(x))
+#theme_temp <- theme_cowplot()
+#theme_temp <- theme_update(panel.grid.major = element_line(color = "gray90", size = 0.5))
+#setwd("D:/OneDrive - LUMC/PhD/Writing/First/Figure 5 Fatty acids and extra/MEA")
+setwd("Y:/OneDrive_LUMC/PhD/Writing/First/Figure 5 Fatty acids and extra/MEA")
+number_axis <- list(theme(text = element_text(size=29.1), 
+        axis.text.x = element_text(size = 22.8),
+        axis.text.y = element_text(size = 22.8),
+        title = element_text(size = 29.1)))
+label_axis <-list(theme(text = element_text(size=29.1), 
+        axis.text.x = element_text(size = 29.1),
+        axis.text.y = element_text(size = 22.8),
+        title = element_text(size = 29.1)))
+```
+
+## import data
+```{r}
+load("Data/FPD_plate1.Rdata") ##already corrected for arrhythmia
+df <- dat %>% mutate(exp = "plate1")
+#load("Data/Analyzed_FPD_plate2.Rdata")
+#df <- bind_rows(df, dat %>% mutate(exp = "plate2"))
+load("Data/Analyzed_FPD_plate3.Rdata")
+df <- bind_rows(df, dat %>% mutate(exp = "plate3")) %>% 
+  unite("Measurement", 3:4, sep = "")
+
+#Filter out all arrhythmic measures
+arr <- read_csv("Data/arrhythmia_stats.csv") %>% filter(!is.na(`Treatment/ID`), !`Arrhythmia Flag` == 0) %>% 
+  rename(exp = Plate)## Plate 2 corrected for naming mistake
+
+df <- anti_join(df, arr, by = c("Display Name", "exp", "Measurement"))
+```
+
+## Models for E4031
+
+```{r}
+E4031 <- df %>% filter(Treatment == "E4031")
+
+model1 <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = E4031 %>% filter(Line == "Pt 1"))  
+summary(model1)
+plot(model1)
+
+model2 <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = E4031 %>% filter(Line == "Iso 1"))  
+summary(model2)
+plot(model2)
+
+model3 <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = E4031 %>% filter(Line == "Ctrl"))  
+summary(model3)
+plot(model3)
+
+DMSO <- df %>% filter(Treatment == "DMSO")
+
+model <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = DMSO %>% filter(Line == "Pt 1"))  
+summary(model)
+plot(model)
+
+model <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = DMSO %>% filter(Line == "Iso 1"))  
+summary(model)
+plot(model)
+
+model <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = DMSO %>% filter(Line == "Ctrl"))  
+summary(model)
+plot(model)
+
+vert <- data.frame(Line = c("Pt 1", "Iso 1", "Ctrl"), EC50 = c(model1$fit$par[4], model2$fit$par[4], model3$fit$par[4]))
+plot_dat <- df %>% filter(Treatment == "E4031") %>% mutate(Concentration = ifelse(Concentration == 0, 3e-04, Concentration))
+ggplot(plot_dat, aes(x = Concentration, y = FPD_increase, colour = Line, fill = Line))+
+  stat_summary(fun = mean, geom = "point", shape = 16, size = 3)+
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.1, size = 0.5)+
+  geom_smooth(method = drm, method.args = list(fct= L.4()), se = FALSE)+
+  scale_x_log10()+
+  geom_vline(data = vert, aes(xintercept = EC50, colour = Line), linetype = "dashed")+
+  scale_colour_npg()+
+  labs(y = "FPD increase (%)",
+       x = "Concentration E4031 (\u00b5M)")+
+  number_axis
+   # geom_text_repel(data = vert, aes(x = EC50, y = 90, label = round(EC50,3)),
+    #                colour = "black", size = 3.5) 
+
+
+#save_plot("Graphs/FPD_E4031.pdf", last_plot(), base_height = 6, base_asp = 1.2)
+df_mean <- df %>% group_by(Line) %>% filter(Concentration == 0) %>% 
+  summarise(across(where(is.double), list(mean = mean, std = std, sd = sd)))
+
+ggplot(df_mean, aes(x = Line, y = `FPD (ms)_mean`, fill = Line))+
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_errorbar(aes(ymin = `FPD (ms)_mean` - `FPD (ms)_std`,
+                ymax = `FPD (ms)_mean` + `FPD (ms)_std`), width = .2,
+                position=position_dodge(.9)) + 
+  scale_y_continuous(expand = c(0,0))+  
+  labs(y = "FPD (ms)")+
+  scale_fill_npg(guide = "none")+
+  label_axis 
+   
+#save_plot("Graphs/FPD_lines.pdf", last_plot(), base_height = 6, base_asp = 1)
+save_plot("Graphs/FPD_lines.png", last_plot(), base_height = 6, base_asp = 1)
+test <- df %>% filter(`Display Name` == "B", Line %in% c("Pt 1", "Iso 1", "Ctrl"))
+test$Line <- as.factor(test$Line)
+pairwise.t.test(test$`FPD (ms)`, test$Line, p.adjust.method = "none")
+
+#t.test(`FPD (ms)`~ Line, data = test)
+
+test2 <- df %>% filter(Line %in% c("Pt 1", "Iso 1"), Treatment == "E4031", Concentration > 0.3) %>% 
+  unite("Lines", c("Line", "Concentration"), remove = FALSE)
+
+wilcox.test(FPD_increase ~ Line, data = test2 %>% filter(Line %in% c("Pt 1", "Iso 1"), Treatment == "E4031", Concentration == 3), alternative = "less")
+
+```
+
+
+#### test
+```{r}
+
+flec <- df %>% filter(! `Display Name` == "C8", Treatment == "Flec") %>% 
+  mutate(Concentration = ifelse(Concentration == 0, 0.01, Concentration))
+
+ggplot(flec, aes(x = Concentration, y = FPD_increase, colour = Line))+
+  stat_summary(fun = mean, geom = "point", shape = 16, size = 3)+
+  #geom_smooth(method = drm, method.args = list(fct= L.4()), se = FALSE, linetype = "dashed")+
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.1, size = 0.5)+
+  stat_summary(fun = mean, geom = "line")+
+ # scale_x_log10()+
+  scale_colour_npg()+
+  labs(y = "FPD change (%)",
+       x = "Concentration Flecainide (\u00b5M)")+
+  number_axis+
+  scale_x_continuous(trans = "log10", labels = scales::label_comma(accuracy = 0.01, trim = FALSE))
+
+#save_plot("graphs/Flec_FPD.pdf", last_plot(), base_asp = 1.2, base_height = 6)
+
+save(df, E4031, flec, file = "Analyzed_FPD.Rdata")
+```
+
+arr <- dat %>% group_by(Line, Treatment, Concentration) %>% filter(Treatment == "E4031", !`Display Name` == "C8") %>% 
+  summarise(number = n()) %>% pivot_wider(names_from = Concentration, values_from = number) %>% 
+  mutate(baseline = as.double(`0`)) %>% mutate(across(where(is.integer), ~.x / baseline*100)) %>% select(-baseline) %>% 
+  pivot_longer(3:10, names_to = "Concentration", values_to = "Percentage arrhythmia") 
+arr[is.na(arr)] <- 0
+ggplot(dat = arr, aes(x = Concentration, y = 100-`Percentage arrhythmia`, fill = Line))+
+  geom_bar(position="dodge", stat="identity")+
+  scale_fill_npg()+
+  scale_y_continuous(expand = c(0,0), limit = c(0,100))+
+  labs(y = "Percentage E4031 induced arrhythmia",
+       x = "Concentration E4031 (\u00b5M)")
+
+arr_flec <- dat %>% group_by(Line, Treatment, Concentration) %>% filter(Treatment == "Flec", !`Display Name` == "C8") %>% 
+  summarise(number = n()) %>% pivot_wider(names_from = Concentration, values_from = number) %>% 
+  mutate(baseline = as.double(`0`)) %>% mutate(across(where(is.integer), ~.x / baseline*100)) %>% select(-baseline) %>% 
+  pivot_longer(3:10, names_to = "Concentration", values_to = "Percentage arrhythmia")
+  
+
+
+
+ggplot(dat = arr_flec, aes(x = Concentration, y = 100-`Percentage arrhythmia`, fill = Line))+
+  geom_bar(position="dodge", stat="identity")+
+  scale_fill_npg()+
+  scale_y_continuous(expand = c(0,0), limit = c(0,100))+
+  labs(y = "Percentage Flecainide induced arrhythmia",
+       x = "Concentration Flecainide (\u00b5M)")
+
+
+ggplot(data = dat %>% filter(`Display Name` == "B"), aes(x = Line, y = `Conduction Velocity (mm/ms)`, fill = Line))+
+   stat_summary(fun = mean, geom = "bar")+
+  stat_summary(fun.data = mean_sdl, geom = "errorbar", size = 0.5, width = 0.1)+
+  scale_y_continuous(expand = c(0,0))+  
+  scale_fill_npg(guide = FALSE)
+  
+
+
