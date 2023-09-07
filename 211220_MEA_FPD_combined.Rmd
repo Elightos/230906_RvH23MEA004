@@ -9,17 +9,17 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 #knitr::opts_knit$set(root.dir = "D:/OneDrive - LUMC/PhD/Calcium/210830_MEA_first_analysis/Data")0
 #knitr::opts_knit$set(root.dir = "X:/OneDrive_LUMC/PhD/MEA/Plate 3/")
-library(drc)
+#library(drc)
 library(tidyverse)
 library(cowplot)
 theme_set(theme_cowplot(font_size = 18))
-library(ggsci)
-library(ggrepel)
+#library(ggsci)
+#library(ggrepel)
 std <- function(x, na.rm = FALSE) sd(x, na.rm = na.rm)/sqrt(length(x))
 #theme_temp <- theme_cowplot()
 #theme_temp <- theme_update(panel.grid.major = element_line(color = "gray90", size = 0.5))
 #setwd("D:/OneDrive - LUMC/PhD/Writing/First/Figure 5 Fatty acids and extra/MEA")
-setwd("Y:/OneDrive_LUMC/PhD/Writing/First/Figure 5 Fatty acids and extra/MEA")
+
 number_axis <- list(theme(text = element_text(size=29.1), 
         axis.text.x = element_text(size = 22.8),
         axis.text.y = element_text(size = 22.8),
@@ -30,8 +30,30 @@ label_axis <-list(theme(text = element_text(size=29.1),
         title = element_text(size = 29.1)))
 ```
 
-## import data
+## build dataframe
 ```{r}
+df <- tibble()
+i <- 0 
+while (i < 100){
+df <- bind_rows(df, 
+                read_csv("Batch_230818_RvH23D002_MEA_drug_test_D30(001)(000)_FP_CardiacMetrics.csv",
+                         col_names = c("Measurement", sprintf(paste0(rep(LETTERS[1:8],each=12),"%01d"),1:12)),
+                         skip = 5+i,
+                         n_max = 14) %>% 
+                  mutate(File = 
+                           read_csv("Batch_230818_RvH23D002_MEA_drug_test_D30(001)(000)_FP_CardiacMetrics.csv",
+                                    skip = i,
+                                    n_max = 1,
+                                    col_names = F) %>% pull(X2)))
+i = i + 25
+}
+
+df <- df %>% 
+  pivot_longer(2:97, names_to = "Well", values_to = "x") %>% 
+  pivot_wider(names_from = Measurement, values_from = x)
+
+
+
 load("Data/FPD_plate1.Rdata") ##already corrected for arrhythmia
 df <- dat %>% mutate(exp = "plate1")
 #load("Data/Analyzed_FPD_plate2.Rdata")
