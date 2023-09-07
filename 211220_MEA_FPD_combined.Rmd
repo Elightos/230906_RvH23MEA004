@@ -40,17 +40,30 @@ df <- bind_rows(df,
                          col_names = c("Measurement", sprintf(paste0(rep(LETTERS[1:8],each=12),"%01d"),1:12)),
                          skip = 5+i,
                          n_max = 14) %>% 
-                  mutate(File = 
+                  mutate(file = 
                            read_csv("Batch_230818_RvH23D002_MEA_drug_test_D30(001)(000)_FP_CardiacMetrics.csv",
                                     skip = i,
                                     n_max = 1,
-                                    col_names = F) %>% pull(X2)))
+                                    col_names = F) %>% pull(X2),
+                         Settings =  case_when( ##extract name from file and create groups
+                           str_detect(file, "(001)") ~ "Baseline", 
+                           str_detect(file, "addition_1") ~ "Dose 1", 
+                           str_detect(file, "80_min") ~ "Dose 2_80 min", 
+                           TRUE ~ "Dose 2")) %>% 
+                  select(file, Settings, everything()))
 i = i + 25
 }
-
+Plate_layout <- read_csv("Plate_layout.csv")
 df <- df %>% 
-  pivot_longer(2:97, names_to = "Well", values_to = "x") %>% 
-  pivot_wider(names_from = Measurement, values_from = x)
+  pivot_longer(4:99, names_to = "Well", values_to = "x") %>% 
+  pivot_wider(names_from = Measurement, values_from = x) %>% 
+  right_join(Plate_layout, by = c("Well")) %>% ##merge with plate layout
+  mutate(Concentration = case_when(
+    str_detect(Settings, "Dose 1") ~ Concentration.1, 
+    str_detect(Settings, "Dose 2") ~ Concentration.2,
+    TRUE ~ 0)) %>% 
+  select(file, Well, Settings, Concentration, everything()) %>% 
+   relocate(file, .after = last_col())
 
 
 
