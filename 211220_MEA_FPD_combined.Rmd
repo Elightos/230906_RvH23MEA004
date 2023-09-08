@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 #knitr::opts_knit$set(root.dir = "D:/OneDrive - LUMC/PhD/Calcium/210830_MEA_first_analysis/Data")0
 #knitr::opts_knit$set(root.dir = "X:/OneDrive_LUMC/PhD/MEA/Plate 3/")
-#library(drc)
+library(drc)
 library(tidyverse)
 library(cowplot)
 theme_set(theme_cowplot(font_size = 18))
@@ -32,6 +32,7 @@ label_axis <-list(theme(text = element_text(size=29.1),
 
 ## build dataframe
 ```{r}
+if(!file.exists("FPD_data.Rdata")) {
 df <- tibble()
 i <- 0 
 while (i < 100){
@@ -63,158 +64,76 @@ df <- df %>%
     str_detect(Settings, "Dose 2") ~ Concentration.2,
     TRUE ~ 0)) %>% 
   select(file, Well, Settings, Concentration, everything()) %>% 
-   relocate(file, .after = last_col())
+   relocate(file, .after = last_col()) %>% 
+  filter(!is.na(`FPD (ms)`))
 
-
-
-load("Data/FPD_plate1.Rdata") ##already corrected for arrhythmia
-df <- dat %>% mutate(exp = "plate1")
-#load("Data/Analyzed_FPD_plate2.Rdata")
-#df <- bind_rows(df, dat %>% mutate(exp = "plate2"))
-load("Data/Analyzed_FPD_plate3.Rdata")
-df <- bind_rows(df, dat %>% mutate(exp = "plate3")) %>% 
-  unite("Measurement", 3:4, sep = "")
-
-#Filter out all arrhythmic measures
-arr <- read_csv("Data/arrhythmia_stats.csv") %>% filter(!is.na(`Treatment/ID`), !`Arrhythmia Flag` == 0) %>% 
-  rename(exp = Plate)## Plate 2 corrected for naming mistake
-
-df <- anti_join(df, arr, by = c("Display Name", "exp", "Measurement"))
+  save(df, file = "FPD_data.Rdata")
+} else {
+  load("FPD_data.Rdata")
+}
 ```
 
-## Models for E4031
 
+## plot raw data 
+plot the data uncorrected for baseline or DMSO
+excluding data of the second dose after 80 minutes
 ```{r}
-E4031 <- df %>% filter(Treatment == "E4031")
-
-model1 <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = E4031 %>% filter(Line == "Pt 1"))  
-summary(model1)
-plot(model1)
-
-model2 <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = E4031 %>% filter(Line == "Iso 1"))  
-summary(model2)
-plot(model2)
-
-model3 <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = E4031 %>% filter(Line == "Ctrl"))  
-summary(model3)
-plot(model3)
-
-DMSO <- df %>% filter(Treatment == "DMSO")
-
-model <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = DMSO %>% filter(Line == "Pt 1"))  
-summary(model)
-plot(model)
-
-model <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = DMSO %>% filter(Line == "Iso 1"))  
-summary(model)
-plot(model)
-
-model <- drm(FPD_increase ~ Concentration, fct = LL.4(names = c("Slope", "Lower", "Upper", "ED50")), data = DMSO %>% filter(Line == "Ctrl"))  
-summary(model)
-plot(model)
-
-vert <- data.frame(Line = c("Pt 1", "Iso 1", "Ctrl"), EC50 = c(model1$fit$par[4], model2$fit$par[4], model3$fit$par[4]))
-plot_dat <- df %>% filter(Treatment == "E4031") %>% mutate(Concentration = ifelse(Concentration == 0, 3e-04, Concentration))
-ggplot(plot_dat, aes(x = Concentration, y = FPD_increase, colour = Line, fill = Line))+
-  stat_summary(fun = mean, geom = "point", shape = 16, size = 3)+
-  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.1, size = 0.5)+
-  geom_smooth(method = drm, method.args = list(fct= L.4()), se = FALSE)+
-  scale_x_log10()+
-  geom_vline(data = vert, aes(xintercept = EC50, colour = Line), linetype = "dashed")+
-  scale_colour_npg()+
-  labs(y = "FPD increase (%)",
-       x = "Concentration E4031 (\u00b5M)")+
-  number_axis
-   # geom_text_repel(data = vert, aes(x = EC50, y = 90, label = round(EC50,3)),
-    #                colour = "black", size = 3.5) 
+df <- df %>% select(1:2, Drug, everything()) %>% 
+  mutate(ajd.conc = ifelse(Settings == "Dose 2_80 min", Concentration + 1, 
+                           ifelse( Settings == "Baseline", 0.0001, Concentration)),
+         BPM = 60/`Beat Period (s)`)
 
 
-#save_plot("Graphs/FPD_E4031.pdf", last_plot(), base_height = 6, base_asp = 1.2)
-df_mean <- df %>% group_by(Line) %>% filter(Concentration == 0) %>% 
-  summarise(across(where(is.double), list(mean = mean, std = std, sd = sd)))
-
-ggplot(df_mean, aes(x = Line, y = `FPD (ms)_mean`, fill = Line))+
-  geom_bar(stat = "identity", position = position_dodge()) +
-  geom_errorbar(aes(ymin = `FPD (ms)_mean` - `FPD (ms)_std`,
-                ymax = `FPD (ms)_mean` + `FPD (ms)_std`), width = .2,
-                position=position_dodge(.9)) + 
-  scale_y_continuous(expand = c(0,0))+  
-  labs(y = "FPD (ms)")+
-  scale_fill_npg(guide = "none")+
-  label_axis 
-   
-#save_plot("Graphs/FPD_lines.pdf", last_plot(), base_height = 6, base_asp = 1)
-save_plot("Graphs/FPD_lines.png", last_plot(), base_height = 6, base_asp = 1)
-test <- df %>% filter(`Display Name` == "B", Line %in% c("Pt 1", "Iso 1", "Ctrl"))
-test$Line <- as.factor(test$Line)
-pairwise.t.test(test$`FPD (ms)`, test$Line, p.adjust.method = "none")
-
-#t.test(`FPD (ms)`~ Line, data = test)
-
-test2 <- df %>% filter(Line %in% c("Pt 1", "Iso 1"), Treatment == "E4031", Concentration > 0.3) %>% 
-  unite("Lines", c("Line", "Concentration"), remove = FALSE)
-
-wilcox.test(FPD_increase ~ Line, data = test2 %>% filter(Line %in% c("Pt 1", "Iso 1"), Treatment == "E4031", Concentration == 3), alternative = "less")
-
-```
-
-
-#### test
-```{r}
-
-flec <- df %>% filter(! `Display Name` == "C8", Treatment == "Flec") %>% 
-  mutate(Concentration = ifelse(Concentration == 0, 0.01, Concentration))
-
-ggplot(flec, aes(x = Concentration, y = FPD_increase, colour = Line))+
-  stat_summary(fun = mean, geom = "point", shape = 16, size = 3)+
-  #geom_smooth(method = drm, method.args = list(fct= L.4()), se = FALSE, linetype = "dashed")+
-  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.1, size = 0.5)+
-  stat_summary(fun = mean, geom = "line")+
- # scale_x_log10()+
-  scale_colour_npg()+
-  labs(y = "FPD change (%)",
-       x = "Concentration Flecainide (\u00b5M)")+
-  number_axis+
-  scale_x_continuous(trans = "log10", labels = scales::label_comma(accuracy = 0.01, trim = FALSE))
-
-#save_plot("graphs/Flec_FPD.pdf", last_plot(), base_asp = 1.2, base_height = 6)
-
-save(df, E4031, flec, file = "Analyzed_FPD.Rdata")
-```
-
-arr <- dat %>% group_by(Line, Treatment, Concentration) %>% filter(Treatment == "E4031", !`Display Name` == "C8") %>% 
-  summarise(number = n()) %>% pivot_wider(names_from = Concentration, values_from = number) %>% 
-  mutate(baseline = as.double(`0`)) %>% mutate(across(where(is.integer), ~.x / baseline*100)) %>% select(-baseline) %>% 
-  pivot_longer(3:10, names_to = "Concentration", values_to = "Percentage arrhythmia") 
-arr[is.na(arr)] <- 0
-ggplot(dat = arr, aes(x = Concentration, y = 100-`Percentage arrhythmia`, fill = Line))+
-  geom_bar(position="dodge", stat="identity")+
-  scale_fill_npg()+
-  scale_y_continuous(expand = c(0,0), limit = c(0,100))+
-  labs(y = "Percentage E4031 induced arrhythmia",
-       x = "Concentration E4031 (\u00b5M)")
-
-arr_flec <- dat %>% group_by(Line, Treatment, Concentration) %>% filter(Treatment == "Flec", !`Display Name` == "C8") %>% 
-  summarise(number = n()) %>% pivot_wider(names_from = Concentration, values_from = number) %>% 
-  mutate(baseline = as.double(`0`)) %>% mutate(across(where(is.integer), ~.x / baseline*100)) %>% select(-baseline) %>% 
-  pivot_longer(3:10, names_to = "Concentration", values_to = "Percentage arrhythmia")
+rplot <- function(y, d){
+  plot <- ggplot(d, aes(x = ajd.conc, y = .data[[y]], colour = Drug))+
+    stat_summary(fun = mean, geom = "point", shape = 1, size = 3)+
+#    geom_point()+
+    stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.1, size = 0.5)+
+    geom_smooth(method = drm, method.args = list(fct= L.4()), se = FALSE)+
+    scale_x_log10()
+  plot(plot)
+}
+nams <- names(df)[c(10:12, 14,16,23)]
+sapply(nams,rplot,df %>% filter(!Settings == "Dose 2_80 min"))
   
 
+```
 
+## Correct data for baseline and plot 
+Here we see a potential change in beat rate for BayK and an increase in FPD for BayK, E4031 and Flec.
+excluding data of the second dose after 80 minutes
+```{r}
+df_base <- df %>% 
+  group_by(Well, Drug) %>% 
+    mutate(baseline = `Spike Amplitude (mV)`,
+         Amplitude_change = `Spike Amplitude (mV)`/mean(`Spike Amplitude (mV)`[Concentration == 0]),
+         BPM_increase = BPM/mean(BPM[Concentration == 0])*100,
+         FPD_change = `FPD (ms)`/mean(`FPD (ms)`[Concentration == 0])*100, 
+         FPDc_change = `FPDc (Fridericia ms)`/mean(`FPDc (Fridericia ms)`[Concentration == 0])*100, 
+         Slope_change = `Spike Slope (V/s)`/mean(`Spike Slope (V/s)`[Concentration == 0])*100,
+         Velocity_change = `Conduction Velocity (mm/ms)`/mean(`Conduction Velocity (mm/ms)`[Concentration == 0])*100) %>% 
+  select(1:4, Amplitude_change, BPM_increase, FPD_change, FPDc_change, Slope_change, Velocity_change, everything())
 
-ggplot(dat = arr_flec, aes(x = Concentration, y = 100-`Percentage arrhythmia`, fill = Line))+
-  geom_bar(position="dodge", stat="identity")+
-  scale_fill_npg()+
-  scale_y_continuous(expand = c(0,0), limit = c(0,100))+
-  labs(y = "Percentage Flecainide induced arrhythmia",
-       x = "Concentration Flecainide (\u00b5M)")
+nams_base <- names(df_base)[5:10]
+sapply(nams_base, rplot, df_base %>% filter(!Settings == "Dose 2_80 min"))
+```
 
+## Correct data for DMSO
+Substracting the effect of DMSO on the statistics
+```{r}
+df_DMSO <- df_base %>% 
+  group_by(Settings) %>% 
+    mutate(baseline = `Spike Amplitude (mV)`,
+         Amplitude_change = Amplitude_change - mean(Amplitude_change[Drug == "DMSO"]),
+         BPM_increase = BPM_increase - mean(BPM_increase[Drug == "DMSO"]),
+         FPD_change = FPD_change - mean(FPD_change[Drug == "DMSO"]), 
+         FPDc_change = FPDc_change - mean(FPDc_change[Drug == "DMSO"]), 
+         Slope_change = Slope_change - mean(Slope_change[Drug == "DMSO"]),
+         Velocity_change = Velocity_change - mean(Velocity_change[Drug == "DMSO"])) %>% 
+  select(1:4, Amplitude_change, BPM_increase, FPD_change, FPDc_change, Slope_change, Velocity_change, everything())
+nams_DMSO <- names(df_DMSO)[5:10]
+sapply(nams_DMSO, rplot, df_DMSO %>% filter(!Settings == "Dose 2_80 min"))
 
-ggplot(data = dat %>% filter(`Display Name` == "B"), aes(x = Line, y = `Conduction Velocity (mm/ms)`, fill = Line))+
-   stat_summary(fun = mean, geom = "bar")+
-  stat_summary(fun.data = mean_sdl, geom = "errorbar", size = 0.5, width = 0.1)+
-  scale_y_continuous(expand = c(0,0))+  
-  scale_fill_npg(guide = FALSE)
-  
-
+##Continue here with proper fold-change calculations change.
+```
 
