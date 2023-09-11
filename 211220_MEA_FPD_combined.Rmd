@@ -79,13 +79,13 @@ plot the data uncorrected for baseline or DMSO
 excluding data of the second dose after 80 minutes
 ```{r}
 df <- df %>% select(1:2, Drug, everything()) %>% 
-  mutate(ajd.conc = ifelse(Settings == "Dose 2_80 min", Concentration + 1, 
+  mutate(adj.conc = ifelse(Settings == "Dose 2_80 min", Concentration + 1, 
                            ifelse( Settings == "Baseline", 0.0001, Concentration)),
          BPM = 60/`Beat Period (s)`)
 
 
 rplot <- function(y, d){
-  plot <- ggplot(d, aes(x = ajd.conc, y = .data[[y]], colour = Drug))+
+  plot <- ggplot(d, aes(x = adj.conc, y = .data[[y]], colour = Drug))+
     stat_summary(fun = mean, geom = "point", shape = 1, size = 3)+
 #    geom_point()+
     stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.1, size = 0.5)+
@@ -106,7 +106,7 @@ excluding data of the second dose after 80 minutes
 df_base <- df %>% 
   group_by(Well, Drug) %>% 
     mutate(baseline = `Spike Amplitude (mV)`,
-         Amplitude_change = `Spike Amplitude (mV)`/mean(`Spike Amplitude (mV)`[Concentration == 0]),
+         Amplitude_change = `Spike Amplitude (mV)`/mean(`Spike Amplitude (mV)`[Concentration == 0]) * 100,
          BPM_increase = BPM/mean(BPM[Concentration == 0])*100,
          FPD_change = `FPD (ms)`/mean(`FPD (ms)`[Concentration == 0])*100, 
          FPDc_change = `FPDc (Fridericia ms)`/mean(`FPDc (Fridericia ms)`[Concentration == 0])*100, 
@@ -119,21 +119,42 @@ sapply(nams_base, rplot, df_base %>% filter(!Settings == "Dose 2_80 min"))
 ```
 
 ## Correct data for DMSO
-Substracting the effect of DMSO on the statistics
+Subtracting the effect of DMSO on the statistics
 ```{r}
 df_DMSO <- df_base %>% 
   group_by(Settings) %>% 
     mutate(baseline = `Spike Amplitude (mV)`,
-         Amplitude_change = Amplitude_change - mean(Amplitude_change[Drug == "DMSO"]),
-         BPM_increase = BPM_increase - mean(BPM_increase[Drug == "DMSO"]),
-         FPD_change = FPD_change - mean(FPD_change[Drug == "DMSO"]), 
-         FPDc_change = FPDc_change - mean(FPDc_change[Drug == "DMSO"]), 
-         Slope_change = Slope_change - mean(Slope_change[Drug == "DMSO"]),
-         Velocity_change = Velocity_change - mean(Velocity_change[Drug == "DMSO"])) %>% 
+         Amplitude_change = (Amplitude_change / mean(Amplitude_change[Drug == "DMSO"]) - 1)*100,
+         BPM_increase = (BPM_increase / mean(BPM_increase[Drug == "DMSO"]) - 1) * 100,
+         FPD_change = (FPD_change / mean(FPD_change[Drug == "DMSO"]) - 1) * 100, 
+         FPDc_change = (FPDc_change / mean(FPDc_change[Drug == "DMSO"]) - 1) * 100, 
+         Slope_change = (Slope_change / mean(Slope_change[Drug == "DMSO"]) - 1) * 100,
+         Velocity_change = (Velocity_change / mean(Velocity_change[Drug == "DMSO"], na.rm = TRUE) - 1)*100) %>% 
   select(1:4, Amplitude_change, BPM_increase, FPD_change, FPDc_change, Slope_change, Velocity_change, everything())
+
 nams_DMSO <- names(df_DMSO)[5:10]
+
 sapply(nams_DMSO, rplot, df_DMSO %>% filter(!Settings == "Dose 2_80 min"))
 
-##Continue here with proper fold-change calculations change.
+```
+
+## Compare baseline and DMSO corrected short and long dose time
+Compare dose 2 measured after 10 and 80 minutes to see long-term effect
+First graphs show the raw data results, note here the increased beat-rate and FPD in the DMSO controls
+Second set of graphs show DMSO corrected 
+```{r}
+
+df_DMSO$Conc <- factor(df_DMSO$Concentration, levels = sort(unique(df_DMSO$Concentration)))
+
+bplot <- function(y){
+plot <- ggplot(df_DMSO %>% filter(Settings %in% c("Dose 2", "Dose 2_80 min")), aes(x = Drug, y = .data[[y]], fill = Settings))+
+  geom_boxplot()
+  
+plot(plot)
+}
+
+sapply(nams, bplot)
+sapply(nams_DMSO, bplot)
+
 ```
 
